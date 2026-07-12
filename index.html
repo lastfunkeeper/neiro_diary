@@ -1,0 +1,138 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
+<meta name="theme-color" content="#16213e">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<link rel="manifest" href="manifest.json">
+<title>Дневник</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+:root{--bg:#0f0f23;--card:#1a1a2e;--accent:#e94560;--text:#eee;--dim:#888;--side:44px}
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:var(--bg);color:var(--text);min-height:100dvh;overflow-x:hidden}
+
+/* Floating side strip */
+#side-strip{position:fixed;right:0;top:50%;transform:translateY(-50%);width:var(--side);height:120px;background:var(--accent);border-radius:12px 0 0 12px;display:flex;align-items:center;justify-content:center;cursor:pointer;z-index:1000;transition:all .3s cubic-bezier(.4,0,.2,1);box-shadow:-2px 0 12px rgba(233,69,96,.4)}
+#side-strip:hover,#side-strip:active{width:56px;height:130px}
+#side-strip svg{width:22px;height:22px;fill:#fff;transition:transform .3s}
+#side-strip.open svg{transform:rotate(180deg)}
+
+/* Overlay panel */
+#panel-overlay{position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:999;opacity:0;pointer-events:none;transition:opacity .3s}
+#panel-overlay.show{opacity:1;pointer-events:auto}
+
+/* Side panel */
+#panel{position:fixed;right:-100%;top:0;width:min(380px,90vw);height:100dvh;background:var(--card);z-index:1001;transition:right .35s cubic-bezier(.4,0,.2,1);display:flex;flex-direction:column;border-left:1px solid #333}
+#panel.open{right:0}
+#panel-header{padding:20px;border-bottom:1px solid #333;display:flex;align-items:center;gap:12px}
+#panel-header h2{flex:1;font-size:18px;font-weight:600}
+#panel-close{width:36px;height:36px;border:none;background:#333;color:#fff;border-radius:8px;font-size:18px;cursor:pointer}
+#panel-body{flex:1;overflow-y:auto;padding:16px}
+
+/* Entries */
+.entry{background:#16213e;border-radius:12px;padding:14px;margin-bottom:12px;border-left:3px solid var(--accent)}
+.entry-date{font-size:12px;color:var(--dim);margin-bottom:6px}
+.entry-text{font-size:14px;line-height:1.5;white-space:pre-wrap}
+.entry-mood{font-size:20px;margin-top:8px}
+
+/* Composer */
+#composer{padding:16px;border-top:1px solid #333;background:var(--card)}
+#composer textarea{width:100%;background:#16213e;border:1px solid #333;color:var(--text);border-radius:10px;padding:12px;font-size:14px;resize:none;height:80px;font-family:inherit}
+#composer textarea:focus{outline:none;border-color:var(--accent)}
+.mood-row{display:flex;gap:8px;margin-top:8px;align-items:center}
+.mood-btn{width:36px;height:36px;border:2px solid transparent;background:#16213e;border-radius:8px;font-size:18px;cursor:pointer;transition:all .2s}
+.mood-btn.sel{border-color:var(--accent);background:#1a1a2e}
+#save-btn{margin-left:auto;padding:8px 20px;background:var(--accent);color:#fff;border:none;border-radius:8px;font-size:14px;font-weight:600;cursor:pointer}
+#save-btn:active{transform:scale(.95)}
+
+/* Empty state */
+.empty{text-align:center;padding:40px 20px;color:var(--dim)}
+.empty svg{width:48px;height:48px;fill:#333;margin-bottom:12px}
+</style>
+</head>
+<body>
+
+<div id="side-strip" onclick="togglePanel()">
+  <svg viewBox="0 0 24 24"><path d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04a1 1 0 000-1.41l-2.34-2.34a1 1 0 00-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z"/></svg>
+</div>
+
+<div id="panel-overlay" onclick="togglePanel()"></div>
+
+<div id="panel">
+  <div id="panel-header">
+    <h2>Мой дневник</h2>
+    <button id="panel-close" onclick="togglePanel()">×</button>
+  </div>
+  <div id="panel-body">
+    <div id="entries"></div>
+  </div>
+  <div id="composer">
+    <textarea id="input" placeholder="О чём думаешь?"></textarea>
+    <div class="mood-row">
+      <button class="mood-btn" data-mood="😊" onclick="pickMood(this)">😊</button>
+      <button class="mood-btn" data-mood="😐" onclick="pickMood(this)">😐</button>
+      <button class="mood-btn" data-mood="😔" onclick="pickMood(this)">😔</button>
+      <button class="mood-btn" data-mood="🔥" onclick="pickMood(this)">🔥</button>
+      <button class="mood-btn" data-mood="💡" onclick="pickMood(this)">💡</button>
+      <button id="save-btn" onclick="saveEntry()">Сохранить</button>
+    </div>
+  </div>
+</div>
+
+<script>
+let selectedMood = '😊';
+const LS_KEY = 'diary_entries';
+
+function togglePanel() {
+  const p = document.getElementById('panel');
+  const o = document.getElementById('panel-overlay');
+  const s = document.getElementById('side-strip');
+  const isOpen = p.classList.toggle('open');
+  o.classList.toggle('show', isOpen);
+  s.classList.toggle('open', isOpen);
+  if (isOpen) renderEntries();
+}
+
+function pickMood(btn) {
+  document.querySelectorAll('.mood-btn').forEach(b => b.classList.remove('sel'));
+  btn.classList.add('sel');
+  selectedMood = btn.dataset.mood;
+}
+
+function getEntries() {
+  return JSON.parse(localStorage.getItem(LS_KEY) || '[]');
+}
+
+function saveEntry() {
+  const text = document.getElementById('input').value.trim();
+  if (!text) return;
+  const entries = getEntries();
+  entries.unshift({ text, mood: selectedMood, date: Date.now() });
+  localStorage.setItem(LS_KEY, JSON.stringify(entries));
+  document.getElementById('input').value = '';
+  renderEntries();
+}
+
+function renderEntries() {
+  const el = document.getElementById('entries');
+  const entries = getEntries();
+  if (!entries.length) {
+    el.innerHTML = '<div class="empty"><svg viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8l-6-6zm-1 2l5 5h-5V4zM6 20V4h5v7h7v9H6z"/></svg><p>Пока пусто</p><p style="font-size:13px;margin-top:4px">Напиши что-нибудь</p></div>';
+    return;
+  }
+  el.innerHTML = entries.map(e => {
+    const d = new Date(e.date);
+    const dateStr = d.toLocaleDateString('ru-RU', { day:'numeric', month:'short', year:'numeric' });
+    const timeStr = d.toLocaleTimeString('ru-RU', { hour:'2-digit', minute:'2-digit' });
+    return `<div class="entry"><div class="entry-date">${dateStr} · ${timeStr}</div><div class="entry-text">${esc(e.text)}</div><div class="entry-mood">${e.mood}</div></div>`;
+  }).join('');
+}
+
+function esc(s) { const d = document.createElement('div'); d.textContent = s; return d.innerHTML; }
+
+// Register SW
+if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js');
+</script>
+</body>
+</html>
